@@ -1,0 +1,27 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+
+# Dev/test — not needed in Lambda image
+requirements-dev.txt
+tests/
+.pytest_cache/
+.coverage
+coverage.xml
+
+# Infrastructure — not part of the app
+terraform/
+
+# Git and tooling
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+*.swp
+
+# Secrets — never bake into image
+.env
+.env.*

@@ -1,0 +1,149 @@
+name: CI/CD — Genomics Data System
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: genomics-data-system
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # -----------------------------------------------------------------------
+  # 1. Lint and test
+  # -----------------------------------------------------------------------
+  test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: genomics_metadata_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      RDS_HOST: localhost
+      RDS_DB: genomics_metadata_test
+      RDS_USER: postgres
+      RDS_PASSWORD: postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint with ruff
+        run: ruff check .
+
+      - name: Format check with black
+        run: black --check .
+
+      - name: Initialize test schema
+        run: python db/schema.py --init
+
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ \
+            --cov=. \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            -v
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+
+  # -----------------------------------------------------------------------
+  # 2. Build and push Docker image to ECR (main branch only)
+  # -----------------------------------------------------------------------
+  build-and-push:
+    name: Build & Push ECR
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main'
+
+    permissions:
+      id-token: write   # OIDC — no stored AWS keys needed
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+                     $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+  # -----------------------------------------------------------------------
+  # 3. Deploy Lambdas via Terraform (main branch only)
+  # -----------------------------------------------------------------------
+  deploy:
+    name: Terraform Deploy
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        working-directory: terraform/
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: terraform/
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: terraform/
+        run: terraform apply -auto-approve tfplan

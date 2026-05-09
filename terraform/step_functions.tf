@@ -62,11 +62,19 @@ resource "aws_sfn_state_machine" "genomics_ingest_pipeline" {
                 MaxAttempts     = 2
                 BackoffRate     = 1.5
               }]
-              Catch = [{
-                ErrorEquals = ["States.ALL"]
-                Next        = "FileFailed"
-                ResultPath  = "$.error"
-              }]
+              Catch = [
+                {
+                  # Already ingested on a previous run — not an error, skip cleanly.
+                  ErrorEquals = ["AlreadyIngestedException"]
+                  Next        = "FileSucceeded"
+                  ResultPath  = null
+                },
+                {
+                  ErrorEquals = ["States.ALL"]
+                  Next        = "FileFailed"
+                  ResultPath  = "$.error"
+                }
+              ]
               Next = "TransferToS3"
             }
 
@@ -106,7 +114,10 @@ resource "aws_sfn_state_machine" "genomics_ingest_pipeline" {
             }
 
             FileSucceeded = { Type = "Succeed" }
-            FileFailed    = { Type = "Fail" }
+            # Succeed (not Fail) so the Map collects all per-file results and
+            # always reaches NotifyCompletion. Failed items have no "status"
+            # field so notify_completion counts them correctly as failures.
+            FileFailed = { Type = "Succeed" }
           }
         }
         Next = "NotifyCompletion"

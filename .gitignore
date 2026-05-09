@@ -1,0 +1,25 @@
+# Secrets — never commit
+.env
+*.tfvars
+*.tfvars.json
+
+# Terraform state
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+
+# Makefile sentinel
+.pip-installed
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.coverage
+coverage.xml
+
+# macOS
+.DS_Store

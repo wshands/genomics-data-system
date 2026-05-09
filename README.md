@@ -33,22 +33,34 @@ Illumina/PacBio ──►   Orchestration           ──►   RDS PostgreSQL (
 - **BAM** — Aligned reads (can be 100GB+, handled via streaming)
 - **VCF** — Variant call format
 
-## Quick Start
+## Running Locally
+
+Docker is required for the local PostgreSQL instance.
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# First time setup
+pip install -r requirements-dev.txt
 
-# Set up local PostgreSQL
-createdb genomics_metadata
-python db/schema.py --init
-
-# Run tests
-pytest tests/
-
-# Simulate a file ingestion
-python pipeline/ingest.py --source dnanexus --file-id file-XXXX
+# Start Postgres, init schema, and run the demo
+make demo
 ```
+
+The demo runs the full ingestion pipeline end-to-end using mocked AWS and fake platform files — no real DNAnexus or HealthOmics credentials needed.
+
+### All available commands
+
+| Command | Description |
+|---|---|
+| `make up` | Start local PostgreSQL container |
+| `make init` | Initialize DB schema |
+| `make demo` | Run end-to-end pipeline demo (mocked AWS) |
+| `make test` | Run pytest with coverage |
+| `make lint` | Run ruff + black check |
+| `make psql` | Open psql shell to inspect data |
+| `make logs` | Tail PostgreSQL container logs |
+| `make down` | Stop and remove PostgreSQL container |
+
+`make demo` automatically runs `make up` and `make init` first — you don't need to call them separately. The container can be left running between sessions; subsequent `make demo` runs will reuse it. Only run `make down` when you want a clean slate (e.g. to reset the database to empty).
 
 ## Environment Variables
 

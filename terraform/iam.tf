@@ -22,6 +22,12 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+# Required for Lambda to create ENIs and reach RDS inside the VPC.
+resource "aws_iam_role_policy_attachment" "lambda_vpc_access" {
+  role       = aws_iam_role.lambda_exec.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
 resource "aws_iam_role_policy" "lambda_s3_rds" {
   name = "s3-rds-access"
   role = aws_iam_role.lambda_exec.id
@@ -38,6 +44,11 @@ resource "aws_iam_role_policy" "lambda_s3_rds" {
         Effect   = "Allow"
         Action   = ["sns:Publish"]
         Resource = aws_sns_topic.pipeline_notifications.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["omics:ListReadSets", "omics:GetReadSet"]
+        Resource = "*"
       }
     ]
   })

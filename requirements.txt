@@ -1,0 +1,4 @@
+boto3>=1.34
+psycopg2-binary>=2.9
+dxpy>=0.375
+python-dotenv>=1.0
