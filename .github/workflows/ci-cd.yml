@@ -41,7 +41,7 @@ jobs:
       RDS_PASSWORD: postgres
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v5
@@ -70,9 +70,9 @@ jobs:
             -v
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
-          file: ./coverage.xml
+          files: ./coverage.xml
 
   # -----------------------------------------------------------------------
   # 2. Build and push Docker image to ECR (main branch only)
