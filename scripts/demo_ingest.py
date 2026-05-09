@@ -40,6 +40,7 @@ REGION = os.environ.get("AWS_REGION", "us-east-1")
 # Mock connector — returns fake files without touching DNAnexus or HealthOmics
 # ---------------------------------------------------------------------------
 
+
 class MockConnector(BaseConnector):
     """Simulates a platform connector for local testing."""
 
@@ -52,7 +53,11 @@ class MockConnector(BaseConnector):
             file_size_bytes=2_500_000_000,
             source_path="project-DEMO:/reads/NA12878_R1.fastq.gz",
             sample_id="SAMPLE-NA12878",
-            metadata={"dx_project": "project-DEMO", "dx_folder": "/reads", "dx_tags": ["WGS"]},
+            metadata={
+                "dx_project": "project-DEMO",
+                "dx_folder": "/reads",
+                "dx_tags": ["WGS"],
+            },
         ),
         RemoteFile(
             platform="DNAnexus",
@@ -62,7 +67,11 @@ class MockConnector(BaseConnector):
             file_size_bytes=85_000_000_000,
             source_path="project-DEMO:/aligned/NA12878.bam",
             sample_id="SAMPLE-NA12878",
-            metadata={"dx_project": "project-DEMO", "dx_folder": "/aligned", "assay": "WGS"},
+            metadata={
+                "dx_project": "project-DEMO",
+                "dx_folder": "/aligned",
+                "assay": "WGS",
+            },
         ),
         RemoteFile(
             platform="HealthOmics",
@@ -81,12 +90,15 @@ class MockConnector(BaseConnector):
             return [f for f in self.DEMO_FILES if f.file_type == file_type]
         return self.DEMO_FILES
 
-    def stream_to_s3(self, remote_file: RemoteFile, s3_bucket: str, s3_key: str) -> dict:
+    def stream_to_s3(
+        self, remote_file: RemoteFile, s3_bucket: str, s3_key: str
+    ) -> dict:
         """Write a small placeholder object to mocked S3."""
         s3 = boto3.client("s3", region_name=REGION)
         body = f"MOCK GENOMICS DATA: {remote_file.file_name} ({remote_file.file_size_bytes} bytes)\n".encode()
         s3.put_object(Bucket=s3_bucket, Key=s3_key, Body=body)
         import hashlib
+
         md5 = hashlib.md5(body).hexdigest()
         sha256 = hashlib.sha256(body).hexdigest()
         logger.info(f"Mock upload: s3://{s3_bucket}/{s3_key}")
@@ -104,8 +116,10 @@ class MockConnector(BaseConnector):
 # Pretty-print helpers
 # ---------------------------------------------------------------------------
 
+
 def _hr(char="─", width=70):
     print(char * width)
+
 
 def _print_results(files: list[dict]):
     for f in files:
@@ -119,6 +133,7 @@ def _print_results(files: list[dict]):
 # ---------------------------------------------------------------------------
 # Main demo
 # ---------------------------------------------------------------------------
+
 
 @mock_aws
 def run_demo():
@@ -143,16 +158,28 @@ def run_demo():
     s3.create_bucket(Bucket=BUCKET)
 
     # 3. Register samples (required before files due to FK constraint)
-    register_sample("SAMPLE-NA12878", patient_id="PT-001", project_id="project-DEMO", assay_type="WGS")
-    register_sample("SAMPLE-BRCA01",  patient_id="PT-002", project_id="project-DEMO", assay_type="WES")
+    register_sample(
+        "SAMPLE-NA12878",
+        patient_id="PT-001",
+        project_id="project-DEMO",
+        assay_type="WGS",
+    )
+    register_sample(
+        "SAMPLE-BRCA01",
+        patient_id="PT-002",
+        project_id="project-DEMO",
+        assay_type="WES",
+    )
 
     print("\n[3/4] Ingesting demo files...\n")
     connector = MockConnector()
     results = []
 
     for remote_file in connector.list_files(project_id="project-DEMO"):
-        print(f"  → {remote_file.file_name} ({remote_file.file_type}, "
-              f"{remote_file.file_size_bytes / 1e9:.1f} GB)")
+        print(
+            f"  → {remote_file.file_name} ({remote_file.file_type}, "
+            f"{remote_file.file_size_bytes / 1e9:.1f} GB)"
+        )
         try:
             result = ingest_file(remote_file, connector)
             results.append(result)
@@ -193,8 +220,10 @@ def run_demo():
                 FROM audit_log ORDER BY logged_at DESC LIMIT 3
             """)
             for row in cur.fetchall():
-                print(f"  [{row[0]:>3}] file_id={row[1]}  action={row[2]:<15} "
-                      f"actor={row[3]:<10}  at={row[4]}")
+                print(
+                    f"  [{row[0]:>3}] file_id={row[1]}  action={row[2]:<15} "
+                    f"actor={row[3]:<10}  at={row[4]}"
+                )
     finally:
         conn.close()
 

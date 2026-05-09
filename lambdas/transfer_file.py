@@ -40,29 +40,29 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 CONNECTOR_MAP = {
-    "DNAnexus":    DNAnexusConnector,
+    "DNAnexus": DNAnexusConnector,
     "HealthOmics": HealthOmicsConnector,
 }
 
 
 def _build_remote_file(event: dict) -> RemoteFile:
     return RemoteFile(
-        platform        = event["platform"],
-        file_id         = event["file_id"],
-        file_name       = event["file_name"],
-        file_type       = event["file_type"],
-        file_size_bytes = event["file_size_bytes"],
-        source_path     = event["source_path"],
-        sample_id       = event["sample_id"],
-        metadata        = event.get("metadata", {}),
+        platform=event["platform"],
+        file_id=event["file_id"],
+        file_name=event["file_name"],
+        file_type=event["file_type"],
+        file_size_bytes=event["file_size_bytes"],
+        source_path=event["source_path"],
+        sample_id=event["sample_id"],
+        metadata=event.get("metadata", {}),
     )
 
 
 def handler(event: dict, context) -> dict:
     db_file_id = event["db_file_id"]
-    s3_bucket  = event["s3_bucket"]
-    s3_key     = event["s3_key"]
-    platform   = event["platform"]
+    s3_bucket = event["s3_bucket"]
+    s3_key = event["s3_key"]
+    platform = event["platform"]
 
     logger.info(
         f"TransferToS3: file_id={db_file_id} "
@@ -75,7 +75,7 @@ def handler(event: dict, context) -> dict:
 
     update_file_status(db_file_id, "transferring")
 
-    connector   = connector_cls()
+    connector = connector_cls()
     remote_file = _build_remote_file(event)
 
     transfer_result = connector.stream_to_s3(remote_file, s3_bucket, s3_key)
@@ -83,7 +83,9 @@ def handler(event: dict, context) -> dict:
     # Verify the object landed correctly
     s3_etag = verify_s3_checksum(s3_bucket, s3_key)
     if s3_etag is None:
-        raise RuntimeError(f"Object not found in S3 after transfer: s3://{s3_bucket}/{s3_key}")
+        raise RuntimeError(
+            f"Object not found in S3 after transfer: s3://{s3_bucket}/{s3_key}"
+        )
 
     logger.info(
         f"Transfer complete: {event['file_name']} "
@@ -93,7 +95,7 @@ def handler(event: dict, context) -> dict:
 
     return {
         **event,
-        "checksum_md5":     transfer_result["checksum_md5"],
-        "checksum_sha256":  transfer_result["checksum_sha256"],
+        "checksum_md5": transfer_result["checksum_md5"],
+        "checksum_sha256": transfer_result["checksum_sha256"],
         "bytes_transferred": transfer_result["bytes_transferred"],
     }

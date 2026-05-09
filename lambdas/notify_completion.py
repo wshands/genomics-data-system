@@ -42,7 +42,7 @@ def handler(event, context) -> dict:
     results = event if isinstance(event, list) else []
 
     ingested = sum(1 for r in results if r.get("status") == "ingested")
-    failed   = len(results) - ingested
+    failed = len(results) - ingested
 
     message = f"Pipeline complete: {ingested} ingested, {failed} failed"
     logger.info(message)
@@ -57,17 +57,17 @@ def handler(event, context) -> dict:
     if SNS_TOPIC_ARN:
         sns = boto3.client("sns")
         sns.publish(
-            TopicArn = SNS_TOPIC_ARN,
-            Subject  = f"Genomics Pipeline: {ingested}/{len(results)} files ingested",
-            Message  = full_message,
+            TopicArn=SNS_TOPIC_ARN,
+            Subject=f"Genomics Pipeline: {ingested}/{len(results)} files ingested",
+            Message=full_message,
         )
         logger.info(f"SNS notification sent to {SNS_TOPIC_ARN}")
     else:
         logger.warning("SNS_TOPIC_ARN not set — skipping notification")
 
     return {
-        "total":    len(results),
+        "total": len(results),
         "ingested": ingested,
-        "failed":   failed,
-        "message":  message,
+        "failed": failed,
+        "message": message,
     }

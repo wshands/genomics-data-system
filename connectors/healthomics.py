@@ -50,30 +50,36 @@ class HealthOmicsConnector(BaseConnector):
             paginator = self.omics.get_paginator("list_read_sets")
             for page in paginator.paginate(sequenceStoreId=project_id):
                 for rs in page.get("readSets", []):
-                    inferred_type = self.FILE_TYPE_MAP.get(rs.get("fileType", ""), "OTHER")
+                    inferred_type = self.FILE_TYPE_MAP.get(
+                        rs.get("fileType", ""), "OTHER"
+                    )
 
                     if file_type and inferred_type != file_type:
                         continue
 
                     sample_id = rs.get("sampleId", rs.get("name", "unknown"))
 
-                    results.append(RemoteFile(
-                        platform="HealthOmics",
-                        file_id=rs["id"],
-                        file_name=rs.get("name", rs["id"]),
-                        file_type=inferred_type,
-                        file_size_bytes=rs.get("sequenceInformation", {}).get("totalBaseCount", 0),
-                        source_path=f"omics://{project_id}/readSet/{rs['id']}",
-                        sample_id=sample_id,
-                        metadata={
-                            "store_id": project_id,
-                            "subject_id": rs.get("subjectId"),
-                            "reference_arn": rs.get("referenceArn"),
-                            "created_time": str(rs.get("creationTime")),
-                            "status": rs.get("status"),
-                            "tags": rs.get("tags", {}),
-                        }
-                    ))
+                    results.append(
+                        RemoteFile(
+                            platform="HealthOmics",
+                            file_id=rs["id"],
+                            file_name=rs.get("name", rs["id"]),
+                            file_type=inferred_type,
+                            file_size_bytes=rs.get("sequenceInformation", {}).get(
+                                "totalBaseCount", 0
+                            ),
+                            source_path=f"omics://{project_id}/readSet/{rs['id']}",
+                            sample_id=sample_id,
+                            metadata={
+                                "store_id": project_id,
+                                "subject_id": rs.get("subjectId"),
+                                "reference_arn": rs.get("referenceArn"),
+                                "created_time": str(rs.get("creationTime")),
+                                "status": rs.get("status"),
+                                "tags": rs.get("tags", {}),
+                            },
+                        )
+                    )
 
         except ClientError as e:
             logger.error(f"HealthOmics API error for store {project_id}: {e}")
@@ -82,7 +88,9 @@ class HealthOmicsConnector(BaseConnector):
         logger.info(f"Found {len(results)} ReadSets in store {project_id}")
         return results
 
-    def stream_to_s3(self, remote_file: RemoteFile, s3_bucket: str, s3_key: str) -> dict:
+    def stream_to_s3(
+        self, remote_file: RemoteFile, s3_bucket: str, s3_key: str
+    ) -> dict:
         """
         Export a HealthOmics ReadSet to S3.
         Uses HealthOmics StartReadSetExportJob for large files,
@@ -91,7 +99,9 @@ class HealthOmicsConnector(BaseConnector):
         # For large files, use HealthOmics native export to S3
         store_id = remote_file.metadata.get("store_id")
 
-        logger.info(f"Exporting ReadSet {remote_file.file_id} → s3://{s3_bucket}/{s3_key}")
+        logger.info(
+            f"Exporting ReadSet {remote_file.file_id} → s3://{s3_bucket}/{s3_key}"
+        )
 
         md5 = hashlib.md5()
         sha256 = hashlib.sha256()

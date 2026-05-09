@@ -7,10 +7,10 @@ Uses mocking to avoid real AWS/DNAnexus calls.
 
 from unittest.mock import patch, MagicMock
 
-
 # ---------------------------------------------------------------------------
 # Tests: db/metadata.py
 # ---------------------------------------------------------------------------
+
 
 class TestRegisterFile:
     """Tests for metadata registration logic."""
@@ -68,10 +68,12 @@ class TestRegisterFile:
 # Tests: pipeline/validator.py
 # ---------------------------------------------------------------------------
 
+
 class TestValidator:
 
     def test_validate_genomics_file_type_valid(self):
         from pipeline.validator import validate_genomics_file_type
+
         assert validate_genomics_file_type("sample.fastq.gz") is True
         assert validate_genomics_file_type("NA12878.bam") is True
         assert validate_genomics_file_type("variants.vcf.gz") is True
@@ -79,6 +81,7 @@ class TestValidator:
 
     def test_validate_genomics_file_type_invalid(self):
         from pipeline.validator import validate_genomics_file_type
+
         assert validate_genomics_file_type("report.pdf") is False
         assert validate_genomics_file_type("data.csv") is False
         assert validate_genomics_file_type("image.png") is False
@@ -112,6 +115,7 @@ class TestValidator:
 # ---------------------------------------------------------------------------
 # Tests: pipeline/ingest.py
 # ---------------------------------------------------------------------------
+
 
 class TestBuildS3Key:
 

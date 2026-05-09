@@ -50,10 +50,16 @@ def validate_genomics_file_type(file_name: str) -> bool:
     Basic validation that the file has a recognized genomics extension.
     """
     VALID_EXTENSIONS = (
-        ".fastq", ".fastq.gz", ".fq", ".fq.gz",
-        ".bam", ".bam.bai",
-        ".vcf", ".vcf.gz",
-        ".cram", ".cram.crai",
+        ".fastq",
+        ".fastq.gz",
+        ".fq",
+        ".fq.gz",
+        ".bam",
+        ".bam.bai",
+        ".vcf",
+        ".vcf.gz",
+        ".cram",
+        ".cram.crai",
         ".bed",
     )
     return file_name.lower().endswith(VALID_EXTENSIONS)

@@ -22,13 +22,15 @@ logger = logging.getLogger(__name__)
 # Shared data structures
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class RemoteFile:
     """Represents a file on a remote platform before transfer."""
+
     platform: str
     file_id: str
     file_name: str
-    file_type: str       # FASTQ, BAM, VCF, etc.
+    file_type: str  # FASTQ, BAM, VCF, etc.
     file_size_bytes: int
     source_path: str
     sample_id: str
@@ -38,6 +40,7 @@ class RemoteFile:
 # ---------------------------------------------------------------------------
 # Base connector interface
 # ---------------------------------------------------------------------------
+
 
 class BaseConnector(ABC):
     """
@@ -51,7 +54,9 @@ class BaseConnector(ABC):
         ...
 
     @abstractmethod
-    def stream_to_s3(self, remote_file: RemoteFile, s3_bucket: str, s3_key: str) -> dict:
+    def stream_to_s3(
+        self, remote_file: RemoteFile, s3_bucket: str, s3_key: str
+    ) -> dict:
         """
         Stream a file directly from the platform to S3 without
         materializing the full file in memory.
@@ -69,6 +74,7 @@ class BaseConnector(ABC):
 # DNAnexus connector
 # ---------------------------------------------------------------------------
 
+
 class DNAnexusConnector(BaseConnector):
     """
     Connector for DNAnexus platform.
@@ -77,9 +83,12 @@ class DNAnexusConnector(BaseConnector):
     """
 
     SUPPORTED_EXTENSIONS = {
-        ".fastq": "FASTQ", ".fastq.gz": "FASTQ",
-        ".bam": "BAM", ".bam.bai": "BAM",
-        ".vcf": "VCF", ".vcf.gz": "VCF",
+        ".fastq": "FASTQ",
+        ".fastq.gz": "FASTQ",
+        ".bam": "BAM",
+        ".bam.bai": "BAM",
+        ".vcf": "VCF",
+        ".vcf.gz": "VCF",
         ".cram": "CRAM",
     }
 
@@ -119,23 +128,25 @@ class DNAnexusConnector(BaseConnector):
                 props = desc.get("properties", {})
                 sample_id = props.get("sample_id", props.get("sample", "unknown"))
 
-                results.append(RemoteFile(
-                    platform="DNAnexus",
-                    file_id=item["id"],
-                    file_name=fname,
-                    file_type=inferred_type,
-                    file_size_bytes=desc.get("size", 0),
-                    source_path=f"{project_id}:{desc.get('folder','/')}/{fname}",
-                    sample_id=sample_id,
-                    metadata={
-                        "dx_project": project_id,
-                        "dx_folder": desc.get("folder", "/"),
-                        "dx_tags": desc.get("tags", []),
-                        "dx_properties": props,
-                        "dx_created": desc.get("created"),
-                        "dx_modified": desc.get("modified"),
-                    }
-                ))
+                results.append(
+                    RemoteFile(
+                        platform="DNAnexus",
+                        file_id=item["id"],
+                        file_name=fname,
+                        file_type=inferred_type,
+                        file_size_bytes=desc.get("size", 0),
+                        source_path=f"{project_id}:{desc.get('folder','/')}/{fname}",
+                        sample_id=sample_id,
+                        metadata={
+                            "dx_project": project_id,
+                            "dx_folder": desc.get("folder", "/"),
+                            "dx_tags": desc.get("tags", []),
+                            "dx_properties": props,
+                            "dx_created": desc.get("created"),
+                            "dx_modified": desc.get("modified"),
+                        },
+                    )
+                )
 
         except dxpy.exceptions.DXAPIError as e:
             logger.error(f"DNAnexus API error listing {project_id}: {e}")
@@ -144,7 +155,9 @@ class DNAnexusConnector(BaseConnector):
         logger.info(f"Found {len(results)} files in {project_id}")
         return results
 
-    def stream_to_s3(self, remote_file: RemoteFile, s3_bucket: str, s3_key: str) -> dict:
+    def stream_to_s3(
+        self, remote_file: RemoteFile, s3_bucket: str, s3_key: str
+    ) -> dict:
         """
         Stream file from DNAnexus directly to S3 using chunked reads.
         Uses DNAnexus download URL + boto3 multipart upload.
@@ -160,7 +173,9 @@ class DNAnexusConnector(BaseConnector):
         sha256 = hashlib.sha256()
         bytes_transferred = 0
 
-        logger.info(f"Starting stream: {remote_file.file_name} → s3://{s3_bucket}/{s3_key}")
+        logger.info(
+            f"Starting stream: {remote_file.file_name} → s3://{s3_bucket}/{s3_key}"
+        )
 
         # Multipart upload config — 100MB parts, 4 parallel threads
         config = TransferConfig(
@@ -207,10 +222,17 @@ class DNAnexusConnector(BaseConnector):
     def get_metadata(self, file_id: str) -> dict:
         """Fetch full metadata for a single DNAnexus file."""
         try:
-            desc = dxpy.DXFile(file_id).describe(fields={
-                "name": True, "size": True, "properties": True,
-                "tags": True, "folder": True, "created": True, "modified": True,
-            })
+            desc = dxpy.DXFile(file_id).describe(
+                fields={
+                    "name": True,
+                    "size": True,
+                    "properties": True,
+                    "tags": True,
+                    "folder": True,
+                    "created": True,
+                    "modified": True,
+                }
+            )
             return desc
         except dxpy.exceptions.DXAPIError as e:
             logger.error(f"Failed to get metadata for {file_id}: {e}")
@@ -219,6 +241,7 @@ class DNAnexusConnector(BaseConnector):
 
 class _IterableToFileObj:
     """Adapter to make a generator look like a file object for boto3 upload_fileobj."""
+
     def __init__(self, iterable):
         self._iter = iterable
         self._buffer = b""

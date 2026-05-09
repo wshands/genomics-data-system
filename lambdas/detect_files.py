@@ -46,13 +46,14 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # Environment-variable fallbacks for project IDs
-DNANEXUS_PROJECT_ID   = os.environ.get("DNANEXUS_PROJECT_ID", "")
-HEALTHOMICS_STORE_ID  = os.environ.get("HEALTHOMICS_STORE_ID", "")
+DNANEXUS_PROJECT_ID = os.environ.get("DNANEXUS_PROJECT_ID", "")
+HEALTHOMICS_STORE_ID = os.environ.get("HEALTHOMICS_STORE_ID", "")
 
 
 # ---------------------------------------------------------------------------
 # DB helpers
 # ---------------------------------------------------------------------------
+
 
 def _get_already_ingested_paths(platform: str) -> set[str]:
     """
@@ -62,12 +63,15 @@ def _get_already_ingested_paths(platform: str) -> set[str]:
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT source_path
                 FROM genomics_files
                 WHERE source_platform = %s
                   AND status NOT IN ('failed', 'deleted')
-            """, (platform,))
+            """,
+                (platform,),
+            )
             return {row[0] for row in cur.fetchall()}
     finally:
         conn.close()
@@ -77,11 +81,12 @@ def _get_already_ingested_paths(platform: str) -> set[str]:
 # Detection logic per platform
 # ---------------------------------------------------------------------------
 
+
 def _detect_dnanexus(project_id: str, file_type: str | None) -> list[dict]:
     from connectors.dnanexus import DNAnexusConnector
 
     connector = DNAnexusConnector()
-    all_files  = connector.list_files(project_id, file_type=file_type)
+    all_files = connector.list_files(project_id, file_type=file_type)
     known_paths = _get_already_ingested_paths("DNAnexus")
 
     new_files = [f for f in all_files if f.source_path not in known_paths]
@@ -95,8 +100,8 @@ def _detect_dnanexus(project_id: str, file_type: str | None) -> list[dict]:
 def _detect_healthomics(store_id: str, file_type: str | None) -> list[dict]:
     from connectors.healthomics import HealthOmicsConnector
 
-    connector   = HealthOmicsConnector()
-    all_files   = connector.list_files(store_id, file_type=file_type)
+    connector = HealthOmicsConnector()
+    all_files = connector.list_files(store_id, file_type=file_type)
     known_paths = _get_already_ingested_paths("HealthOmics")
 
     new_files = [f for f in all_files if f.source_path not in known_paths]
@@ -110,14 +115,14 @@ def _detect_healthomics(store_id: str, file_type: str | None) -> list[dict]:
 def _remote_file_to_dict(remote_file) -> dict:
     """Serialize a RemoteFile dataclass to a plain dict for Step Functions."""
     return {
-        "platform":        remote_file.platform,
-        "file_id":         remote_file.file_id,
-        "file_name":       remote_file.file_name,
-        "file_type":       remote_file.file_type,
+        "platform": remote_file.platform,
+        "file_id": remote_file.file_id,
+        "file_name": remote_file.file_name,
+        "file_type": remote_file.file_type,
         "file_size_bytes": remote_file.file_size_bytes,
-        "source_path":     remote_file.source_path,
-        "sample_id":       remote_file.sample_id,
-        "metadata":        remote_file.metadata or {},
+        "source_path": remote_file.source_path,
+        "sample_id": remote_file.sample_id,
+        "metadata": remote_file.metadata or {},
     }
 
 
@@ -125,10 +130,11 @@ def _remote_file_to_dict(remote_file) -> dict:
 # Lambda handler
 # ---------------------------------------------------------------------------
 
+
 def handler(event: dict, context) -> dict:
     logger.info(f"DetectFiles invoked: {json.dumps(event)}")
 
-    platform  = event.get("platform", "all").lower()
+    platform = event.get("platform", "all").lower()
     file_type = event.get("file_type")  # optional — None means all types
 
     new_files: list[dict] = []
@@ -143,16 +149,20 @@ def handler(event: dict, context) -> dict:
     if platform in ("healthomics", "all"):
         store_id = event.get("project_id") or HEALTHOMICS_STORE_ID
         if not store_id:
-            logger.warning("HEALTHOMICS_STORE_ID not set — skipping HealthOmics detection")
+            logger.warning(
+                "HEALTHOMICS_STORE_ID not set — skipping HealthOmics detection"
+            )
         else:
             new_files.extend(_detect_healthomics(store_id, file_type))
 
     if platform not in ("dnanexus", "healthomics", "all"):
-        raise ValueError(f"Unknown platform '{platform}'. Use: dnanexus | healthomics | all")
+        raise ValueError(
+            f"Unknown platform '{platform}'. Use: dnanexus | healthomics | all"
+        )
 
     logger.info(f"Detected {len(new_files)} new file(s) across platform(s): {platform}")
 
     return {
         "file_count": len(new_files),
-        "files":      new_files,
+        "files": new_files,
     }

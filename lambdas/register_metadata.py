@@ -43,19 +43,20 @@ logger.setLevel(logging.INFO)
 
 
 def handler(event: dict, context) -> dict:
-    db_file_id     = event["db_file_id"]
-    run_id         = event["run_id"]
-    checksum_md5   = event["checksum_md5"]
+    db_file_id = event["db_file_id"]
+    run_id = event["run_id"]
+    checksum_md5 = event["checksum_md5"]
     checksum_sha256 = event["checksum_sha256"]
-    s3_bucket      = event["s3_bucket"]
-    s3_key         = event["s3_key"]
+    s3_bucket = event["s3_bucket"]
+    s3_key = event["s3_key"]
 
     logger.info(f"RegisterMetadata: file_id={db_file_id} md5={checksum_md5}")
 
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(
+                """
                 UPDATE genomics_files
                 SET status          = 'ingested',
                     checksum_md5    = %s,
@@ -63,7 +64,9 @@ def handler(event: dict, context) -> dict:
                     last_accessed   = NOW(),
                     updated_at      = NOW()
                 WHERE file_id = %s
-            """, (checksum_md5, checksum_sha256, db_file_id))
+            """,
+                (checksum_md5, checksum_sha256, db_file_id),
+            )
         conn.commit()
     finally:
         conn.close()
@@ -72,11 +75,11 @@ def handler(event: dict, context) -> dict:
     logger.info(f"Ingestion complete: file_id={db_file_id}")
 
     return {
-        "db_file_id":   db_file_id,
-        "file_name":    event["file_name"],
-        "file_type":    event["file_type"],
-        "sample_id":    event["sample_id"],
-        "s3_uri":       f"s3://{s3_bucket}/{s3_key}",
+        "db_file_id": db_file_id,
+        "file_name": event["file_name"],
+        "file_type": event["file_type"],
+        "sample_id": event["sample_id"],
+        "s3_uri": f"s3://{s3_bucket}/{s3_key}",
         "checksum_md5": checksum_md5,
-        "status":       "ingested",
+        "status": "ingested",
     }

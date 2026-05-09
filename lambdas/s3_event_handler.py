@@ -64,7 +64,7 @@ def _handle_object_created(bucket: str, key: str, record: dict):
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT file_id, status FROM genomics_files WHERE s3_bucket = %s AND s3_key = %s",
-                (bucket, key)
+                (bucket, key),
             )
             row = cur.fetchone()
             if row:
@@ -72,7 +72,7 @@ def _handle_object_created(bucket: str, key: str, record: dict):
                 if status == "transferring":
                     cur.execute(
                         "UPDATE genomics_files SET status = 'ingested', updated_at = NOW() WHERE file_id = %s",
-                        (file_id,)
+                        (file_id,),
                     )
                     conn.commit()
                     logger.info(f"Confirmed ingestion for file_id={file_id}")
@@ -87,7 +87,9 @@ def _handle_lifecycle_transition(bucket: str, key: str, record: dict):
     When S3 lifecycle transitions an object to a new storage class,
     update the storage_tier in the metadata DB.
     """
-    storage_class = record.get("s3", {}).get("object", {}).get("storageClass", "STANDARD")
+    storage_class = (
+        record.get("s3", {}).get("object", {}).get("storageClass", "STANDARD")
+    )
     tier = TIER_MAP.get(storage_class, "hot")
     logger.info(f"Lifecycle transition: s3://{bucket}/{key} → {storage_class} ({tier})")
 
@@ -96,7 +98,7 @@ def _handle_lifecycle_transition(bucket: str, key: str, record: dict):
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT file_id FROM genomics_files WHERE s3_bucket = %s AND s3_key = %s",
-                (bucket, key)
+                (bucket, key),
             )
             row = cur.fetchone()
             if row:

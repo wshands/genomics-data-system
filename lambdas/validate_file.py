@@ -31,13 +31,19 @@ import sys
 sys.path.insert(0, "/var/task")
 
 from db.schema import get_connection
-from db.metadata import GenomicsFileRecord, register_file, register_sample, start_pipeline_run
+from db.metadata import (
+    GenomicsFileRecord,
+    register_file,
+    register_sample,
+    start_pipeline_run,
+)
 from pipeline.validator import validate_genomics_file_type
 
 
 class AlreadyIngestedException(Exception):
     """Raised when a file has already been successfully ingested.
     Caught by the Step Functions ValidateFile Catch block → routed to FileSucceeded."""
+
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -57,12 +63,15 @@ def _find_existing_record(source_path: str) -> dict | None:
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT file_id, status FROM genomics_files
                 WHERE source_path = %s
                   AND status NOT IN ('failed', 'deleted')
                 LIMIT 1
-            """, (source_path,))
+            """,
+                (source_path,),
+            )
             row = cur.fetchone()
             return {"file_id": row[0], "status": row[1]} if row else None
     finally:
@@ -72,9 +81,9 @@ def _find_existing_record(source_path: str) -> dict | None:
 def handler(event: dict, context) -> dict:
     logger.info(f"ValidateFile: {event.get('file_name')} ({event.get('file_type')})")
 
-    file_name   = event["file_name"]
+    file_name = event["file_name"]
     source_path = event["source_path"]
-    platform    = event["platform"]
+    platform = event["platform"]
 
     # 1. Validate file type
     if not validate_genomics_file_type(file_name):
@@ -84,9 +93,13 @@ def handler(event: dict, context) -> dict:
     existing = _find_existing_record(source_path)
 
     if existing and existing["status"] == "ingested":
-        logger.info(f"Already ingested: {source_path} (file_id={existing['file_id']}) — skipping")
+        logger.info(
+            f"Already ingested: {source_path} (file_id={existing['file_id']}) — skipping"
+        )
         # Step Functions Catch block routes AlreadyIngestedException → FileSucceeded.
-        raise AlreadyIngestedException(f"file_id={existing['file_id']} already ingested")
+        raise AlreadyIngestedException(
+            f"file_id={existing['file_id']} already ingested"
+        )
 
     if existing:
         db_file_id = existing["file_id"]
@@ -96,21 +109,21 @@ def handler(event: dict, context) -> dict:
         # ON CONFLICT DO NOTHING makes this safe whether or not the sample
         # was registered by an external system beforehand.
         register_sample(
-            sample_id  = event["sample_id"],
-            project_id = event.get("metadata", {}).get("dx_project")
-                         or event.get("metadata", {}).get("store_id"),
+            sample_id=event["sample_id"],
+            project_id=event.get("metadata", {}).get("dx_project")
+            or event.get("metadata", {}).get("store_id"),
         )
 
         record = GenomicsFileRecord(
-            sample_id       = event["sample_id"],
-            file_name       = file_name,
-            file_type       = event["file_type"],
-            source_platform = platform,
-            source_path     = source_path,
-            s3_bucket       = S3_BUCKET,
-            s3_key          = _build_s3_key(event),
-            file_size_bytes = event["file_size_bytes"],
-            metadata        = event.get("metadata", {}),
+            sample_id=event["sample_id"],
+            file_name=file_name,
+            file_type=event["file_type"],
+            source_platform=platform,
+            source_path=source_path,
+            s3_bucket=S3_BUCKET,
+            s3_key=_build_s3_key(event),
+            file_size_bytes=event["file_size_bytes"],
+            metadata=event.get("metadata", {}),
         )
         db_file_id = register_file(record)
         logger.info(f"Registered new record file_id={db_file_id}")
@@ -120,7 +133,7 @@ def handler(event: dict, context) -> dict:
     return {
         **event,
         "db_file_id": db_file_id,
-        "run_id":     run_id,
-        "s3_bucket":  S3_BUCKET,
-        "s3_key":     _build_s3_key(event),
+        "run_id": run_id,
+        "s3_bucket": S3_BUCKET,
+        "s3_key": _build_s3_key(event),
     }

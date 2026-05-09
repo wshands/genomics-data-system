@@ -86,21 +86,25 @@ def ingest_file(remote_file: RemoteFile, connector) -> dict:
 
         # Step 4: Update metadata to ingested
         from db.schema import get_connection
+
         conn = get_connection()
         try:
             with conn.cursor() as cur:
-                cur.execute("""
+                cur.execute(
+                    """
                     UPDATE genomics_files
                     SET status = 'ingested',
                         checksum_md5 = %s,
                         checksum_sha256 = %s,
                         updated_at = NOW()
                     WHERE file_id = %s
-                """, (
-                    transfer_result["checksum_md5"],
-                    transfer_result["checksum_sha256"],
-                    file_id,
-                ))
+                """,
+                    (
+                        transfer_result["checksum_md5"],
+                        transfer_result["checksum_sha256"],
+                        file_id,
+                    ),
+                )
             conn.commit()
         finally:
             conn.close()
@@ -130,7 +134,9 @@ def ingest_project(platform: str, project_id: str, file_type: Optional[str] = No
     """
     connector_cls = CONNECTOR_MAP.get(platform.lower())
     if not connector_cls:
-        raise ValueError(f"Unknown platform: {platform}. Supported: {list(CONNECTOR_MAP.keys())}")
+        raise ValueError(
+            f"Unknown platform: {platform}. Supported: {list(CONNECTOR_MAP.keys())}"
+        )
 
     connector = connector_cls()
     files = connector.list_files(project_id, file_type=file_type)
@@ -164,11 +170,20 @@ if __name__ == "__main__":
     )
 
     parser = argparse.ArgumentParser(description="Genomics file ingestion pipeline")
-    parser.add_argument("--source", required=True, choices=["dnanexus", "healthomics"],
-                        help="Source platform")
-    parser.add_argument("--project-id", required=True, help="Project or sequence store ID")
-    parser.add_argument("--file-type", choices=["FASTQ", "BAM", "VCF", "CRAM"],
-                        help="Filter by file type")
+    parser.add_argument(
+        "--source",
+        required=True,
+        choices=["dnanexus", "healthomics"],
+        help="Source platform",
+    )
+    parser.add_argument(
+        "--project-id", required=True, help="Project or sequence store ID"
+    )
+    parser.add_argument(
+        "--file-type",
+        choices=["FASTQ", "BAM", "VCF", "CRAM"],
+        help="Filter by file type",
+    )
     args = parser.parse_args()
 
     ingest_project(
