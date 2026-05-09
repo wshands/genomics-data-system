@@ -69,10 +69,6 @@ jobs:
             --cov-report=term-missing \
             -v
 
-      - name: Upload coverage
-        uses: codecov/codecov-action@v5
-        with:
-          files: ./coverage.xml
 
   # -----------------------------------------------------------------------
   # 2. Build and push Docker image to ECR (main branch only)
