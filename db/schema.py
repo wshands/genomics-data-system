@@ -8,7 +8,6 @@ Tables: genomics_files, samples, pipeline_runs, audit_log
 import os
 import argparse
 import psycopg2
-from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 
 DDL = """
 -- Samples table: one row per biological sample

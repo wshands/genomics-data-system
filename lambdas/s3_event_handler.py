@@ -9,13 +9,12 @@ Deploy via: Terraform + GitHub Actions
 
 import json
 import logging
-import os
 import sys
 
 # Lambda environment — add project root to path
 sys.path.insert(0, "/var/task")
 
-from db.metadata import update_file_status, update_storage_tier
+from db.metadata import update_storage_tier
 from db.schema import get_connection
 
 logger = logging.getLogger()

@@ -5,9 +5,7 @@ Pytest unit tests for the Genomics Data System.
 Uses mocking to avoid real AWS/DNAnexus calls.
 """
 
-import pytest
-from unittest.mock import patch, MagicMock, call
-from dataclasses import asdict
+from unittest.mock import patch, MagicMock
 
 
 # ---------------------------------------------------------------------------

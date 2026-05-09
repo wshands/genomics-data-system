@@ -12,7 +12,6 @@ Run: python scripts/demo_ingest.py
 
 import os
 import sys
-import json
 import logging
 
 # Ensure project root is on the path

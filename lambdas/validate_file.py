@@ -24,7 +24,6 @@ Output (passed to TransferToS3):
   Same dict + db_file_id, run_id, s3_bucket, s3_key
 """
 
-import json
 import logging
 import os
 import sys

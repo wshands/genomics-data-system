@@ -86,7 +86,6 @@ def ingest_file(remote_file: RemoteFile, connector) -> dict:
 
         # Step 4: Update metadata to ingested
         from db.schema import get_connection
-        import json
         conn = get_connection()
         try:
             with conn.cursor() as cur:
