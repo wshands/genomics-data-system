@@ -92,7 +92,9 @@ def handler(event: dict, context) -> dict:
     # 2. Find or create DB record (idempotent on retry)
     existing = _find_existing_record(source_path)
 
-    if existing and existing["status"] == "ingested":
+    force = bool(event.get("force", False))
+
+    if existing and existing["status"] == "ingested" and not force:
         logger.info(
             f"Already ingested: {source_path} (file_id={existing['file_id']}) — skipping"
         )

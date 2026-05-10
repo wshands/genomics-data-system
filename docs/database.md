@@ -1,0 +1,192 @@
+# Database — Structure and Operation
+
+PostgreSQL 17 running on Amazon RDS. The database (`genomics_metadata`) has four tables that together track every file the system ingests, the pipeline runs that processed it, and an immutable audit trail of every state change.
+
+Schema is defined in [db/schema.py](../db/schema.py) and initialized by the `detect_files` Lambda on its first cold start (`CREATE TABLE IF NOT EXISTS` — idempotent).
+
+---
+
+## Tables
+
+### `samples`
+
+One row per biological sample. Files are foreign-keyed to this table so every file has a traceable sample origin.
+
+| Column | Type | Notes |
+|---|---|---|
+| `sample_id` | VARCHAR(64) PK | e.g. `SAMPLE-001`, `NA12878` |
+| `patient_id` | VARCHAR(64) | de-identified patient identifier |
+| `project_id` | VARCHAR(64) | DNAnexus project or HealthOmics store |
+| `assay_type` | VARCHAR(64) | WGS, WES, RNA-seq, scATAC-seq, etc. |
+| `organism` | VARCHAR(64) | default `human` |
+| `created_at` | TIMESTAMPTZ | |
+| `updated_at` | TIMESTAMPTZ | |
+
+Inserts use `ON CONFLICT (sample_id) DO NOTHING` so the `validate_file` Lambda can call `register_sample` safely on every run without risk of duplicate-key errors.
+
+---
+
+### `genomics_files`
+
+One row per tracked file. This is the central table — every other table references it.
+
+| Column | Type | Notes |
+|---|---|---|
+| `file_id` | BIGSERIAL PK | auto-incrementing surrogate key |
+| `sample_id` | VARCHAR(64) FK → samples | |
+| `file_name` | VARCHAR(512) | original filename |
+| `file_type` | VARCHAR(16) | `FASTQ`, `BAM`, `VCF`, `CRAM`, `BED`, `OTHER` |
+| `source_platform` | VARCHAR(32) | `DNAnexus`, `HealthOmics`, `Illumina`, `PacBio`, `Local` |
+| `source_path` | TEXT | original path on source platform — used for deduplication |
+| `s3_bucket` | VARCHAR(255) | destination bucket |
+| `s3_key` | TEXT | full S3 object key: `{file_type}/{sample_id}/{platform}/{file_name}` |
+| `storage_tier` | VARCHAR(16) | `hot`, `warm`, `cold` — mirrors S3 storage class |
+| `file_size_bytes` | BIGINT | |
+| `checksum_md5` | VARCHAR(64) | computed during transfer |
+| `checksum_sha256` | VARCHAR(128) | computed during transfer |
+| `status` | VARCHAR(32) | see status lifecycle below |
+| `error_message` | TEXT | populated on failure |
+| `last_accessed` | TIMESTAMPTZ | updated by S3 event handler |
+| `metadata` | JSONB | platform-specific fields (dx_project, subject_id, tags, etc.) |
+| `created_at` | TIMESTAMPTZ | |
+| `updated_at` | TIMESTAMPTZ | |
+
+**Indexes:** `sample_id`, `file_type`, `status`, `source_platform`, `storage_tier`, `metadata` (GIN — supports `@>` queries on the JSONB column).
+
+**File status lifecycle:**
+
+```
+pending → transferring → ingested
+                       ↘ failed
+ingested → archived
+ingested → deleted
+```
+
+| Status | Set by | Meaning |
+|---|---|---|
+| `pending` | `validate_file` | record created, transfer not started |
+| `transferring` | `transfer_file` | S3 multipart upload in progress |
+| `ingested` | `register_metadata` | file in S3, checksums recorded |
+| `failed` | `transfer_file` (on error) | transfer or validation failed |
+| `archived` | archival job | moved to Glacier, no longer hot |
+| `deleted` | deletion job | object removed from S3 |
+
+**Deduplication:** `detect_files` queries `source_path` against this table and skips files already in `ingested` status (unless `force: true` is passed). `validate_file` also checks `source_path` before inserting — if a `pending` or `transferring` record exists, it reuses the same `file_id` rather than creating a duplicate (Step Functions retry safety).
+
+---
+
+### `pipeline_runs`
+
+One row per pipeline execution of a single file. Tracks timing and outcome.
+
+| Column | Type | Notes |
+|---|---|---|
+| `run_id` | BIGSERIAL PK | |
+| `file_id` | BIGINT FK → genomics_files | |
+| `run_type` | VARCHAR(32) | `ingest`, `archive`, `validate`, `delete` |
+| `status` | VARCHAR(16) | `running`, `success`, `failed`, `retrying` |
+| `attempt_number` | INT | default 1 |
+| `started_at` | TIMESTAMPTZ | |
+| `completed_at` | TIMESTAMPTZ | |
+| `duration_secs` | FLOAT | generated column: `EXTRACT(EPOCH FROM completed_at - started_at)` |
+| `error_message` | TEXT | |
+| `run_metadata` | JSONB | |
+
+---
+
+### `audit_log`
+
+Immutable append-only record of every file state change. Written inside the same transaction as the primary write so it can never be skipped. Required for HIPAA compliance.
+
+| Column | Type | Notes |
+|---|---|---|
+| `log_id` | BIGSERIAL PK | |
+| `file_id` | BIGINT | not a FK — intentionally decoupled so log survives file deletion |
+| `action` | VARCHAR(32) | `INGEST`, `STATUS_CHANGE`, `TIER_CHANGE`, `ACCESS`, `DELETE` |
+| `actor` | VARCHAR(128) | system service name or user |
+| `before_state` | JSONB | snapshot of relevant fields before the change |
+| `after_state` | JSONB | snapshot of relevant fields after the change |
+| `ip_address` | VARCHAR(64) | |
+| `logged_at` | TIMESTAMPTZ | |
+
+**Indexes:** `file_id`, `action`, `logged_at`.
+
+Note: `file_id` in `audit_log` is not a foreign key by design — if a file record is hard-deleted, the audit history must remain intact.
+
+---
+
+## Python API (`db/metadata.py`)
+
+All DB writes go through `db/metadata.py`. Direct SQL in Lambda handlers is intentionally avoided so audit logging is never accidentally skipped.
+
+| Function | Description |
+|---|---|
+| `register_sample(sample_id, ...)` | Upsert a sample — `ON CONFLICT DO NOTHING` |
+| `register_file(record)` | Insert a file record; writes `INGEST` audit entry; returns `file_id` |
+| `update_file_status(file_id, status)` | Update file status; writes `STATUS_CHANGE` audit entry |
+| `update_storage_tier(file_id, tier)` | Update storage tier; writes `TIER_CHANGE` audit entry |
+| `start_pipeline_run(file_id, run_type)` | Insert a `pipeline_runs` row; returns `run_id` |
+| `complete_pipeline_run(run_id, success)` | Mark run as `success` or `failed`, sets `completed_at` |
+| `get_files_by_sample(sample_id)` | Return all file records for a sample |
+| `get_files_by_status(status)` | Return all files with a given status |
+
+---
+
+## Useful queries
+
+**All files for a sample:**
+```sql
+SELECT file_id, file_name, file_type, status, storage_tier,
+       ROUND(file_size_bytes / 1e9, 2) AS size_gb, created_at
+FROM genomics_files
+WHERE sample_id = 'SAMPLE-001'
+ORDER BY created_at DESC;
+```
+
+**Ingestion summary by platform and type:**
+```sql
+SELECT source_platform, file_type, status,
+       COUNT(*) AS files,
+       ROUND(SUM(file_size_bytes) / 1e12, 2) AS total_tb
+FROM genomics_files
+GROUP BY source_platform, file_type, status
+ORDER BY source_platform, file_type;
+```
+
+**Files stuck in transferring (likely failed without cleanup):**
+```sql
+SELECT file_id, file_name, source_platform, updated_at
+FROM genomics_files
+WHERE status = 'transferring'
+ORDER BY updated_at;
+```
+
+**Full history for a specific file:**
+```sql
+SELECT a.log_id, a.action, a.actor, a.before_state, a.after_state, a.logged_at
+FROM audit_log a
+WHERE a.file_id = 42
+ORDER BY a.logged_at;
+```
+
+**Recent pipeline run performance:**
+```sql
+SELECT r.run_id, f.file_name, r.status,
+       ROUND(r.duration_secs, 1) AS secs,
+       r.error_message
+FROM pipeline_runs r
+JOIN genomics_files f ON f.file_id = r.file_id
+ORDER BY r.started_at DESC
+LIMIT 20;
+```
+
+---
+
+## Connecting to the database
+
+**Locally** (Docker PostgreSQL via `make up`):
+```bash
+make psql
+```
+
+**Production RDS** — the instance is in a private VPC subnet and is not publicly accessible. To query it directly you need to either be inside the VPC (via a bastion or VPN) or use a Lambda to proxy the query. Standard production access pattern is through the Lambda API layer rather than direct DB connections.

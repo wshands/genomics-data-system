@@ -56,10 +56,6 @@ HEALTHOMICS_STORE_ID = os.environ.get("HEALTHOMICS_STORE_ID", "")
 
 
 def _get_already_ingested_paths(platform: str) -> set[str]:
-    """
-    Return the set of source_paths already in the metadata DB for this platform
-    whose status is not 'failed' or 'deleted' — i.e. files we shouldn't re-ingest.
-    """
     conn = get_connection()
     try:
         with conn.cursor() as cur:
@@ -82,37 +78,37 @@ def _get_already_ingested_paths(platform: str) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-def _detect_dnanexus(project_id: str, file_type: str | None) -> list[dict]:
+def _detect_dnanexus(project_id: str, file_type: str | None, force: bool = False) -> list[dict]:
     from connectors.dnanexus import DNAnexusConnector
 
     connector = DNAnexusConnector()
     all_files = connector.list_files(project_id, file_type=file_type)
-    known_paths = _get_already_ingested_paths("DNAnexus")
+    known_paths = set() if force else _get_already_ingested_paths("DNAnexus")
 
     new_files = [f for f in all_files if f.source_path not in known_paths]
     logger.info(
         f"DNAnexus {project_id}: {len(all_files)} total, "
-        f"{len(known_paths)} known, {len(new_files)} new"
+        f"{len(known_paths)} known, {len(new_files)} new (force={force})"
     )
-    return [_remote_file_to_dict(f) for f in new_files]
+    return [_remote_file_to_dict(f, force=force) for f in new_files]
 
 
-def _detect_healthomics(store_id: str, file_type: str | None) -> list[dict]:
+def _detect_healthomics(store_id: str, file_type: str | None, force: bool = False) -> list[dict]:
     from connectors.healthomics import HealthOmicsConnector
 
     connector = HealthOmicsConnector()
     all_files = connector.list_files(store_id, file_type=file_type)
-    known_paths = _get_already_ingested_paths("HealthOmics")
+    known_paths = set() if force else _get_already_ingested_paths("HealthOmics")
 
     new_files = [f for f in all_files if f.source_path not in known_paths]
     logger.info(
         f"HealthOmics {store_id}: {len(all_files)} total, "
-        f"{len(known_paths)} known, {len(new_files)} new"
+        f"{len(known_paths)} known, {len(new_files)} new (force={force})"
     )
-    return [_remote_file_to_dict(f) for f in new_files]
+    return [_remote_file_to_dict(f, force=force) for f in new_files]
 
 
-def _remote_file_to_dict(remote_file) -> dict:
+def _remote_file_to_dict(remote_file, force: bool = False) -> dict:
     """Serialize a RemoteFile dataclass to a plain dict for Step Functions."""
     return {
         "platform": remote_file.platform,
@@ -123,6 +119,7 @@ def _remote_file_to_dict(remote_file) -> dict:
         "source_path": remote_file.source_path,
         "sample_id": remote_file.sample_id,
         "metadata": remote_file.metadata or {},
+        "force": force,
     }
 
 
@@ -137,6 +134,10 @@ def handler(event: dict, context) -> dict:
 
     platform = event.get("platform", "all").lower()
     file_type = event.get("file_type")  # optional — None means all types
+    force = bool(event.get("force", False))
+
+    if force:
+        logger.info("Force mode enabled — skipping already-ingested check")
 
     new_files: list[dict] = []
 
@@ -145,7 +146,7 @@ def handler(event: dict, context) -> dict:
         if not project_id:
             logger.warning("DNANEXUS_PROJECT_ID not set — skipping DNAnexus detection")
         else:
-            new_files.extend(_detect_dnanexus(project_id, file_type))
+            new_files.extend(_detect_dnanexus(project_id, file_type, force=force))
 
     if platform in ("healthomics", "all"):
         store_id = event.get("project_id") or HEALTHOMICS_STORE_ID
@@ -154,7 +155,7 @@ def handler(event: dict, context) -> dict:
                 "HEALTHOMICS_STORE_ID not set — skipping HealthOmics detection"
             )
         else:
-            new_files.extend(_detect_healthomics(store_id, file_type))
+            new_files.extend(_detect_healthomics(store_id, file_type, force=force))
 
     if platform not in ("dnanexus", "healthomics", "all"):
         raise ValueError(

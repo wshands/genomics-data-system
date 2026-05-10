@@ -57,6 +57,16 @@ The pipeline runs automatically every night at 2am UTC via EventBridge. To trigg
 }
 ```
 
+**Force re-ingest already-ingested files (useful for demos and testing):**
+```json
+{
+  "platform": "healthomics",
+  "force": true
+}
+```
+
+With `"force": true`, `DetectFiles` skips the already-ingested check and re-queues all files from the platform. The `ValidateFile` step reuses existing DB records rather than creating duplicates, so this is safe to run repeatedly. The `source` key is optional — it is logged but not used by any pipeline logic.
+
 ### AWS CLI
 
 ```bash
@@ -98,8 +108,9 @@ Common failure patterns:
 | Symptom | Likely cause |
 |---------|-------------|
 | `DetectFiles` fails | DNAnexus token expired or HealthOmics store ID incorrect |
+| `DetectFiles` returns 0 files unexpectedly | Files may already be `ingested` in the DB — use `"force": true` to re-queue them |
 | `ValidateFile` fails | File extension not in the supported list (FASTQ, BAM, VCF, CRAM, BED) |
-| `TransferToS3` fails after retries | Network timeout on large BAM file — check Lambda timeout (currently 15 min) |
+| `TransferToS3` fails after retries | Network timeout on large BAM file — check Lambda timeout (currently 15 min); or HealthOmics ReadSet is not `ACTIVE` (may be `ARCHIVED` — activate it in the console first) |
 | `RegisterMetadata` fails | RDS connectivity issue — check security group rules and VPC config |
 | All steps skipped via `AlreadyIngestedException` | Files were already ingested on a previous run — this is normal, not an error |
 
