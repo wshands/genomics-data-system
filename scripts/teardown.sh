@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # scripts/teardown.sh — Tear down the Genomics Data System from AWS
 #
-# Handles three things Terraform cannot do on its own:
-#   1. RDS has deletion_protection=true — must be disabled first
-#   2. Versioned S3 bucket — all object versions must be deleted before Terraform
+# Handles two things Terraform cannot do on its own:
+#   1. Versioned S3 bucket — all object versions must be deleted before Terraform
 #      can remove the bucket
-#   3. ECR images — must be deleted before the repository can be removed
+#   2. ECR images — must be deleted before the repository can be removed
 #
 # Usage:
 #   ./scripts/teardown.sh          # prompts for confirmation
@@ -17,6 +16,8 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TF_DIR="$REPO_ROOT/terraform"
 AWS_PROFILE="${AWS_PROFILE:-AdministratorAccess-230407893272}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
+ENVIRONMENT="${ENVIRONMENT:-prod}"
+NAME_PREFIX="genomics-data-system-${ENVIRONMENT}"
 
 # ── Colours ──────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -49,23 +50,45 @@ check_aws_auth() {
 disable_rds_deletion_protection() {
   info "Step 1/4 — Disabling RDS deletion protection..."
 
-  # Get the RDS instance identifier from Terraform state
-  local db_id
-  db_id=$(tf output -raw rds_endpoint 2>/dev/null | cut -d. -f1 || true)
+  local db_id="${NAME_PREFIX}-metadata"
 
-  if [[ -z "$db_id" ]]; then
-    warn "Could not determine RDS identifier from Terraform output — skipping"
+  info "  Checking RDS instance $db_id in $AWS_REGION..."
+  local current_protection
+  if ! current_protection=$(aws_cmd rds describe-db-instances \
+      --db-instance-identifier "$db_id" \
+      --query 'DBInstances[0].DeletionProtection' \
+      --output text 2>&1); then
+    # Show the actual error so we know what went wrong
+    warn "describe-db-instances failed: $current_protection"
+    warn "Skipping — if the instance exists, delete it manually in the console"
     return
   fi
 
-  aws_cmd rds modify-db-instance \
-    --db-instance-identifier "$db_id" \
-    --no-deletion-protection \
-    --apply-immediately &>/dev/null || warn "Could not disable deletion protection (may already be disabled)"
+  if [[ -z "$current_protection" || "$current_protection" == "None" ]]; then
+    warn "RDS instance $db_id not found in $AWS_REGION — skipping"
+    return
+  fi
 
-  info "  Waiting for RDS modification to complete..."
-  aws_cmd rds wait db-instance-available \
-    --db-instance-identifier "$db_id" 2>/dev/null || true
+  info "  deletion_protection=$current_protection"
+
+  if [[ "$current_protection" =~ [Tt]rue ]]; then
+    info "  Disabling deletion protection..."
+    aws_cmd rds modify-db-instance \
+      --db-instance-identifier "$db_id" \
+      --no-deletion-protection \
+      --apply-immediately > /dev/null
+
+    info "  Waiting for deletion protection to be disabled..."
+    local attempts=0
+    until aws_cmd rds describe-db-instances \
+        --db-instance-identifier "$db_id" \
+        --query 'DBInstances[0].DeletionProtection' \
+        --output text 2>/dev/null | grep -iq "false"; do
+      sleep 10
+      attempts=$((attempts + 1))
+      [[ $attempts -gt 36 ]] && die "Timed out — check RDS status in the console"
+    done
+  fi
 
   success "RDS deletion protection disabled"
 }
@@ -74,22 +97,14 @@ disable_rds_deletion_protection() {
 empty_s3_bucket() {
   info "Step 2/4 — Emptying S3 bucket (all versions and delete markers)..."
 
-  local bucket
-  bucket=$(tf output -raw s3_bucket_name 2>/dev/null || true)
+  local bucket="${NAME_PREFIX}-data"
 
-  if [[ -z "$bucket" ]]; then
-    warn "Could not determine S3 bucket name from Terraform output — skipping"
-    return
-  fi
-
-  # Check bucket exists
   if ! aws_cmd s3api head-bucket --bucket "$bucket" &>/dev/null; then
     warn "Bucket $bucket does not exist — skipping"
     return
   fi
 
   info "  Deleting all object versions in s3://$bucket..."
-  # Delete all versions in batches
   aws_cmd s3api list-object-versions --bucket "$bucket" \
     --query '{Objects: Versions[].{Key: Key, VersionId: VersionId}}' \
     --output json 2>/dev/null \
@@ -114,13 +129,7 @@ empty_s3_bucket() {
 empty_ecr_repository() {
   info "Step 3/4 — Deleting ECR images..."
 
-  local repo
-  repo=$(tf output -raw ecr_repository_url 2>/dev/null | cut -d/ -f2 || true)
-
-  if [[ -z "$repo" ]]; then
-    warn "Could not determine ECR repository name — skipping"
-    return
-  fi
+  local repo="${NAME_PREFIX}"
 
   local image_ids
   image_ids=$(aws_cmd ecr list-images --repository-name "$repo" \
@@ -138,9 +147,35 @@ empty_ecr_repository() {
   success "ECR images deleted"
 }
 
-# ── Step 4: Terraform destroy ─────────────────────────────────────────────────
+# ── Step 4: Delete CloudWatch log groups ─────────────────────────────────────
+# Lambda log groups are auto-created by AWS and not managed by Terraform.
+delete_log_groups() {
+  info "Step 4/5 — Deleting CloudWatch log groups..."
+
+  local prefix="/aws/lambda/${NAME_PREFIX}"
+  local groups
+  groups=$(aws_cmd logs describe-log-groups \
+    --log-group-name-prefix "$prefix" \
+    --query 'logGroups[].logGroupName' \
+    --output text 2>/dev/null || true)
+
+  if [[ -z "$groups" ]]; then
+    success "No log groups found"
+    return
+  fi
+
+  for group in $groups; do
+    aws_cmd logs delete-log-group --log-group-name "$group" &>/dev/null \
+      && info "  Deleted $group" \
+      || warn "  Could not delete $group"
+  done
+
+  success "Log groups deleted"
+}
+
+# ── Step 5: Terraform destroy ─────────────────────────────────────────────────
 terraform_destroy() {
-  info "Step 4/4 — Running terraform destroy..."
+  info "Step 5/5 — Running terraform destroy..."
   tf destroy -auto-approve -input=false
   success "Infrastructure destroyed"
 }
@@ -162,11 +197,12 @@ main() {
   fi
 
   check_aws_auth
-  tf -chdir="$TF_DIR" init -input=false -upgrade &>/dev/null
+  tf init -input=false -upgrade &>/dev/null
 
   disable_rds_deletion_protection
   empty_s3_bucket
   empty_ecr_repository
+  delete_log_groups
   terraform_destroy
 
   echo ""
