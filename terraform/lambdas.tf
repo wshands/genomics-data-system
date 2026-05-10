@@ -142,3 +142,19 @@ resource "aws_sns_topic" "pipeline_notifications" {
   name = "${local.name_prefix}-notifications"
   tags = local.common_tags
 }
+
+# CloudWatch log groups — explicitly managed so terraform destroy removes them
+resource "aws_cloudwatch_log_group" "lambda_logs" {
+  for_each = toset([
+    "s3-event-handler",
+    "detect-files",
+    "validate-file",
+    "transfer-file",
+    "register-metadata",
+    "notify-completion",
+  ])
+
+  name              = "/aws/lambda/${local.name_prefix}-${each.key}"
+  retention_in_days = 30
+  tags              = local.common_tags
+}

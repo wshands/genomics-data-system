@@ -64,8 +64,8 @@ resource "aws_db_instance" "genomics_metadata" {
   vpc_security_group_ids = [aws_security_group.rds.id]
 
   backup_retention_period = 7
-  deletion_protection     = true
-  skip_final_snapshot     = false
+  deletion_protection     = false
+  skip_final_snapshot     = true
 
   tags = local.common_tags
 
