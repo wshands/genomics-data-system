@@ -40,7 +40,7 @@ import sys
 
 sys.path.insert(0, "/var/task")
 
-from db.schema import get_connection
+from db.schema import get_connection, init_schema
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -68,7 +68,7 @@ def _get_already_ingested_paths(platform: str) -> set[str]:
                 SELECT source_path
                 FROM genomics_files
                 WHERE source_platform = %s
-                  AND status NOT IN ('failed', 'deleted')
+                  AND status = 'ingested'
             """,
                 (platform,),
             )
@@ -132,6 +132,7 @@ def _remote_file_to_dict(remote_file) -> dict:
 
 
 def handler(event: dict, context) -> dict:
+    init_schema()  # CREATE TABLE IF NOT EXISTS — idempotent, initializes RDS on first run
     logger.info(f"DetectFiles invoked: {json.dumps(event)}")
 
     platform = event.get("platform", "all").lower()

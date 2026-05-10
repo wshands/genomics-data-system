@@ -103,47 +103,49 @@ resource "aws_db_subnet_group" "main" {
 }
 
 # ---------------------------------------------------------------------------
-# Lambda security group — outbound only
+# Security groups — defined without cross-references to avoid Terraform cycle.
+# Cross-referencing rules are added as separate aws_security_group_rule resources.
 # ---------------------------------------------------------------------------
 resource "aws_security_group" "lambda" {
   name        = "${local.name_prefix}-lambda"
   description = "Outbound-only SG for genomics pipeline Lambda functions"
   vpc_id      = aws_vpc.main.id
-
-  egress {
-    description     = "PostgreSQL to RDS"
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.rds.id]
-  }
-
-  egress {
-    description = "HTTPS to AWS APIs and external platforms (S3, SNS, DNAnexus, HealthOmics)"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = merge(local.common_tags, { Name = "${local.name_prefix}-lambda" })
+  tags        = merge(local.common_tags, { Name = "${local.name_prefix}-lambda" })
 }
 
-# ---------------------------------------------------------------------------
-# RDS security group — PostgreSQL inbound from Lambda only
-# ---------------------------------------------------------------------------
 resource "aws_security_group" "rds" {
   name        = "${local.name_prefix}-rds"
   description = "Allow PostgreSQL inbound from Lambda SG only"
   vpc_id      = aws_vpc.main.id
+  tags        = merge(local.common_tags, { Name = "${local.name_prefix}-rds" })
+}
 
-  ingress {
-    description     = "PostgreSQL from Lambda"
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.lambda.id]
-  }
+resource "aws_security_group_rule" "lambda_egress_rds" {
+  type                     = "egress"
+  description              = "PostgreSQL to RDS"
+  from_port                = 5432
+  to_port                  = 5432
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.lambda.id
+  source_security_group_id = aws_security_group.rds.id
+}
 
-  tags = merge(local.common_tags, { Name = "${local.name_prefix}-rds" })
+resource "aws_security_group_rule" "lambda_egress_https" {
+  type              = "egress"
+  description       = "HTTPS to AWS APIs and external platforms"
+  from_port         = 443
+  to_port           = 443
+  protocol          = "tcp"
+  security_group_id = aws_security_group.lambda.id
+  cidr_blocks       = ["0.0.0.0/0"]
+}
+
+resource "aws_security_group_rule" "rds_ingress_lambda" {
+  type                     = "ingress"
+  description              = "PostgreSQL from Lambda"
+  from_port                = 5432
+  to_port                  = 5432
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.rds.id
+  source_security_group_id = aws_security_group.lambda.id
 }

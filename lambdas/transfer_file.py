@@ -78,14 +78,19 @@ def handler(event: dict, context) -> dict:
     connector = connector_cls()
     remote_file = _build_remote_file(event)
 
-    transfer_result = connector.stream_to_s3(remote_file, s3_bucket, s3_key)
+    try:
+        transfer_result = connector.stream_to_s3(remote_file, s3_bucket, s3_key)
 
-    # Verify the object landed correctly
-    s3_etag = verify_s3_checksum(s3_bucket, s3_key)
-    if s3_etag is None:
-        raise RuntimeError(
-            f"Object not found in S3 after transfer: s3://{s3_bucket}/{s3_key}"
-        )
+        # Verify the object landed correctly
+        s3_etag = verify_s3_checksum(s3_bucket, s3_key)
+        if s3_etag is None:
+            raise RuntimeError(
+                f"Object not found in S3 after transfer: s3://{s3_bucket}/{s3_key}"
+            )
+    except Exception as e:
+        update_file_status(db_file_id, "failed", error_message=str(e))
+        logger.error(f"Transfer failed for file_id={db_file_id}: {e}")
+        raise
 
     logger.info(
         f"Transfer complete: {event['file_name']} "

@@ -27,6 +27,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "genomics_data" {
   rule {
     id     = "tier-warm"
     status = "Enabled"
+    filter {}
     transition {
       days          = 30
       storage_class = "STANDARD_IA"
@@ -36,6 +37,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "genomics_data" {
   rule {
     id     = "tier-cold"
     status = "Enabled"
+    filter {}
     transition {
       days          = 90
       storage_class = "GLACIER"
@@ -49,7 +51,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "genomics_data" {
 resource "aws_db_instance" "genomics_metadata" {
   identifier        = "${local.name_prefix}-metadata"
   engine            = "postgres"
-  engine_version    = "15.4"
+  engine_version    = "17"
   instance_class    = "db.t3.medium"
   allocated_storage = 100
   storage_encrypted = true
@@ -66,4 +68,8 @@ resource "aws_db_instance" "genomics_metadata" {
   skip_final_snapshot     = false
 
   tags = local.common_tags
+
+  lifecycle {
+    ignore_changes = [engine_version]
+  }
 }

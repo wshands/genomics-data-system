@@ -85,13 +85,50 @@ build_and_push() {
     | docker login --username AWS --password-stdin "$ECR_URL"
 
   info "  Building image..."
-  docker build -t "$ECR_URL:$IMAGE_TAG" -t "$ECR_URL:latest" "$REPO_ROOT"
+  docker build --platform linux/amd64 --provenance=false -t "$ECR_URL:$IMAGE_TAG" -t "$ECR_URL:latest" "$REPO_ROOT"
 
   info "  Pushing image..."
   docker push "$ECR_URL:$IMAGE_TAG"
   docker push "$ECR_URL:latest"
 
   success "Image pushed — $ECR_URL:$IMAGE_TAG"
+}
+
+# ── Force Lambda functions to pull the new image ─────────────────────────────
+# Terraform won't update Lambdas when the image tag stays ':latest'.
+# This step calls update-function-code explicitly after every push.
+update_lambdas() {
+  info "Updating Lambda functions to pull new image..."
+
+  local ecr_url name_prefix
+  ecr_url=$(tf output -raw ecr_repository_url)
+  name_prefix=$(echo "$ecr_url" | cut -d/ -f2)   # e.g. genomics-data-system-prod
+
+  local functions=(
+    s3-event-handler
+    detect-files
+    validate-file
+    transfer-file
+    register-metadata
+    notify-completion
+  )
+
+  for fn in "${functions[@]}"; do
+    local fname="${name_prefix}-${fn}"
+    if aws_cmd lambda update-function-code \
+        --function-name "$fname" \
+        --image-uri "${ecr_url}:latest" &>/dev/null; then
+      info "  Updated $fname"
+    else
+      warn "  $fname not found — will be created by Terraform"
+    fi
+  done
+
+  success "Lambda functions updated"
+}
+
+aws_cmd() {
+  aws --profile "$AWS_PROFILE" --region "$AWS_REGION" "$@"
 }
 
 # ── Full infra apply ──────────────────────────────────────────────────────────
@@ -132,10 +169,11 @@ main() {
       bootstrap_ecr
       build_and_push
       apply_infra
+      update_lambdas
       ;;
     push-only)
       build_and_push
-      apply_infra
+      update_lambdas
       ;;
     plan)
       plan_only

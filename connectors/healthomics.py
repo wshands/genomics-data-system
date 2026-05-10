@@ -50,6 +50,12 @@ class HealthOmicsConnector(BaseConnector):
             paginator = self.omics.get_paginator("list_read_sets")
             for page in paginator.paginate(sequenceStoreId=project_id):
                 for rs in page.get("readSets", []):
+                    if rs.get("status") != "ACTIVE":
+                        logger.info(
+                            f"Skipping ReadSet {rs['id']} — status={rs.get('status')}"
+                        )
+                        continue
+
                     inferred_type = self.FILE_TYPE_MAP.get(
                         rs.get("fileType", ""), "OTHER"
                     )

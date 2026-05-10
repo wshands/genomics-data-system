@@ -7,8 +7,8 @@ A production-grade genomics data pipeline for retrieving, archiving, and managin
 ```
 [Data Sources]              [Ingestion]              [Storage & DB]
 DNAnexus        ──►                                
-AWS HealthOmics ──►   Step Functions          ──►   S3 (tiered: hot/warm/cold)
-Illumina/PacBio ──►   Orchestration           ──►   RDS PostgreSQL (metadata)
+                      Step Functions          ──►   S3 (tiered: hot/warm/cold)
+AWS HealthOmics ──►   Orchestration           ──►   RDS PostgreSQL (metadata)
                        │                            CloudWatch (monitoring)
                        ├── Platform Connectors
                        ├── File Validator (checksum)
