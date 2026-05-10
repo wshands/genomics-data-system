@@ -78,7 +78,9 @@ def _get_already_ingested_paths(platform: str) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-def _detect_dnanexus(project_id: str, file_type: str | None, force: bool = False) -> list[dict]:
+def _detect_dnanexus(
+    project_id: str, file_type: str | None, force: bool = False
+) -> list[dict]:
     from connectors.dnanexus import DNAnexusConnector
 
     connector = DNAnexusConnector()
@@ -93,7 +95,9 @@ def _detect_dnanexus(project_id: str, file_type: str | None, force: bool = False
     return [_remote_file_to_dict(f, force=force) for f in new_files]
 
 
-def _detect_healthomics(store_id: str, file_type: str | None, force: bool = False) -> list[dict]:
+def _detect_healthomics(
+    store_id: str, file_type: str | None, force: bool = False
+) -> list[dict]:
     from connectors.healthomics import HealthOmicsConnector
 
     connector = HealthOmicsConnector()
