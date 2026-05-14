@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Genomics Data System — Interview Description</title>
+  <style>
+    /* ── Screen styles ───────────────────────────────────────── */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Georgia", serif;
+      font-size: 11pt;
+      line-height: 1.65;
+      color: #1a1a1a;
+      background: #f5f5f5;
+      padding: 2rem;
+    }
+
+    .page {
+      max-width: 750px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 54pt 60pt;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.12);
+    }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    header {
+      border-bottom: 2px solid #1a1a1a;
+      padding-bottom: 12pt;
+      margin-bottom: 22pt;
+    }
+
+    header h1 {
+      font-size: 18pt;
+      font-weight: bold;
+      letter-spacing: -0.02em;
+      margin-bottom: 4pt;
+    }
+
+    header .subtitle {
+      font-size: 10pt;
+      color: #555;
+      font-style: italic;
+    }
+
+    /* ── Section headings ────────────────────────────────────── */
+    h2 {
+      font-size: 12pt;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-top: 22pt;
+      margin-bottom: 8pt;
+      color: #1a1a1a;
+      border-bottom: 1px solid #ccc;
+      padding-bottom: 3pt;
+    }
+
+    /* ── Body text ───────────────────────────────────────────── */
+    p {
+      margin-bottom: 9pt;
+      text-align: justify;
+      hyphens: auto;
+    }
+
+    strong {
+      font-weight: bold;
+    }
+
+    /* ── Dividers between sections ───────────────────────────── */
+    hr {
+      display: none;
+    }
+
+    /* ── Print styles ────────────────────────────────────────── */
+    @media print {
+      body {
+        background: #fff;
+        padding: 0;
+        font-size: 10.5pt;
+      }
+
+      .page {
+        max-width: none;
+        box-shadow: none;
+        padding: 0;
+        margin: 0;
+      }
+
+      h2 {
+        page-break-after: avoid;
+      }
+
+      p {
+        orphans: 3;
+        widows: 3;
+      }
+
+      /* keep each section together if possible */
+      section {
+        page-break-inside: avoid;
+      }
+    }
+
+    @page {
+      size: letter;
+      margin: 0.85in 1in;
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <h1>Genomics Data System</h1>
+    <div class="subtitle">Walter Shands &nbsp;·&nbsp; DevOps Engineer Portfolio &nbsp;·&nbsp; Natera Interview</div>
+  </header>
+
+  <section>
+    <h2>Background and Motivation</h2>
+    <p>
+      The Genomics Data System is a production-grade AWS data pipeline that automates the ingestion of
+      large genomics files — FASTQ, BAM, VCF, and CRAM — from external research platforms into a
+      centralized, cost-optimized cloud data lake. The system was designed as an interview portfolio piece
+      for a DevOps Engineer role at Natera, but it directly reflects work done in production at Biogen,
+      where I led the migration of approximately 0.5 petabytes of genomics sequencing data from DNAnexus
+      to AWS. That migration involved exactly the challenges this system solves: dealing with files that
+      are 50–100 GB each, tracking provenance and checksums for regulatory compliance, handling partial
+      failures gracefully in large batch runs, and building infrastructure that can be version-controlled,
+      reviewed, and torn down reliably.
+    </p>
+  </section>
+
+  <section>
+    <h2>What the System Does</h2>
+    <p>
+      The pipeline ingests genomics files from two source platforms — <strong>DNAnexus</strong> (a cloud
+      bioinformatics platform used widely in pharma research) and <strong>AWS HealthOmics</strong>
+      (Amazon's managed genomics store). Each night at 2 AM UTC, an EventBridge schedule triggers an AWS
+      Step Functions state machine that runs the full ingestion workflow. The pipeline detects which files
+      on those platforms have not yet been ingested, validates their file types, streams them to S3 using
+      chunked multipart upload, records checksums and metadata in a PostgreSQL database, and publishes a
+      completion summary via SNS. The result is a durable, auditable, cost-tiered data lake of genomics
+      files with a queryable metadata layer sitting on top of it.
+    </p>
+  </section>
+
+  <section>
+    <h2>Pipeline Architecture</h2>
+    <p>
+      The core pipeline is a Step Functions state machine with five Lambda-backed steps. I chose Step
+      Functions rather than a simple cron Lambda or Airflow job for three reasons: it gives you a visual
+      execution graph in the console that makes debugging straightforward, it provides built-in retry
+      logic and error routing, and its <strong>Map</strong> state lets you process multiple files
+      concurrently without managing that parallelism yourself.
+    </p>
+    <p>
+      The first step, <strong>DetectFiles</strong>, polls both platforms, compares the results against
+      the PostgreSQL database, and returns only files that have not yet been successfully ingested. It
+      returns a list of file descriptors that the Step Functions Map state fans out — up to 10 files
+      processed in parallel. Each parallel branch runs <strong>ValidateFile</strong> →
+      <strong>TransferToS3</strong> → <strong>RegisterMetadata</strong> in sequence, with
+      <strong>NotifyCompletion</strong> executing after the entire Map completes. A sixth Lambda, the
+      S3 event handler, reacts to S3 <code>ObjectCreated</code> events to confirm ingest status and
+      track storage-tier transitions as S3 lifecycle rules migrate objects from Standard to
+      Standard-IA to Glacier over time.
+    </p>
+    <p>
+      One architectural decision I'm particularly deliberate about is the <strong>Step Functions data
+      contract</strong>. Each Lambda's output dict is the next Lambda's input, and fields accumulate
+      across steps: DetectFiles returns the platform metadata; ValidateFile adds the database file ID
+      and pipeline run ID; TransferToS3 adds the MD5 and SHA-256 checksums; RegisterMetadata returns a
+      final summary. This accumulation pattern means each Lambda is self-contained — it has everything
+      it needs from prior steps without any shared state or external lookups, which makes individual
+      steps easy to test and rerun in isolation.
+    </p>
+  </section>
+
+  <section>
+    <h2>Key Engineering Decisions</h2>
+    <p>
+      <strong>Streaming transfers with zero memory buffering.</strong> Both platform connectors read
+      from the source platform in 64 MB chunks, computing MD5 and SHA256 checksums incrementally as
+      each chunk passes through. Those chunks are piped into boto3 multipart upload via a generator
+      adapter, which reassembles them into 100 MB S3 parts uploaded 4 at a time across a thread pool.
+      Files are never fully loaded into Lambda memory — peak usage is roughly 730 MB regardless of
+      file size. The transfer Lambda is provisioned with 3 GB of RAM and a 15-minute timeout
+      specifically for 100 GB+ BAM files.
+    </p>
+    <p>
+      <strong>Idempotency at every step.</strong> Step Functions retries failed tasks automatically,
+      so every Lambda must be safe to run more than once for the same file. DetectFiles filters out
+      files already in <em>ingested</em> status at the DB query level. ValidateFile checks
+      <code>source_path</code> before inserting — if a <em>pending</em> or <em>transferring</em>
+      record already exists from a prior attempt, it reuses that record rather than creating a
+      duplicate. If a file is already ingested and <code>force</code> is not set, it raises a typed
+      exception that the Step Functions Catch block routes to the <em>FileSucceeded</em> branch
+      rather than <em>FileFailed</em>, keeping the success tallies accurate.
+    </p>
+    <p>
+      <strong>Partial failure isolation.</strong> In a batch run of 50 files, a single network timeout
+      on one large BAM should not abort the other 49. The <em>FileFailed</em> branch in the Map
+      iterator is typed as <code>Type = "Succeed"</code> in the Step Functions definition. Individual
+      file failures are captured and reported as failed items in the final summary but never propagate
+      upward to kill the Map or skip NotifyCompletion. The notification Lambda counts items with
+      <code>status: "ingested"</code> vs. those missing that field to produce the success/failure tally.
+    </p>
+    <p>
+      <strong>Immutable audit logging for HIPAA compliance.</strong> Every file operation — ingestion,
+      status change, storage tier change, access, deletion — writes a row to an <code>audit_log</code>
+      table inside the same PostgreSQL transaction as the primary write. The audit log's
+      <code>file_id</code> column is deliberately not a foreign key: if a file record is hard-deleted,
+      the audit history must survive. This design ensures the audit trail can never be accidentally
+      skipped because the log write happens atomically with the primary record update inside the
+      database access layer, not as a separate call in Lambda handler code.
+    </p>
+    <p>
+      <strong>S3 key naming convention.</strong> Files land at
+      <code>{file_type}/{sample_id}/{platform}/{file_name}</code> — for example,
+      <code>BAM/SAMPLE-001/DNAnexus/NA12878.bam</code>. This structure makes it straightforward to
+      use S3 inventory, Athena, or prefix-scoped lifecycle rules if the tiering strategy ever needs
+      to vary by file type or platform.
+    </p>
+  </section>
+
+  <section>
+    <h2>Infrastructure as Code</h2>
+    <p>
+      The entire AWS environment is defined in Terraform and creates itself from scratch with no
+      pre-existing infrastructure required. The configuration provisions a VPC with public and private
+      subnets across two availability zones, an Internet Gateway, a NAT Gateway so private-subnet
+      Lambdas can reach S3 and external APIs, least-privilege security groups between Lambda and RDS,
+      an RDS PostgreSQL 17 instance with Multi-AZ and KMS encryption, an ECR repository, the Step
+      Functions state machine and all six Lambda functions as container images, EventBridge schedule
+      rules, an SNS topic, CloudWatch log groups with 30-day retention, and CloudWatch alarms for
+      Lambda error rate and Step Functions execution failures.
+    </p>
+    <p>
+      Lambda functions are deployed as container images rather than ZIP packages for two reasons: the
+      connectors require compiled dependencies like <code>psycopg2</code> that don't cross-compile
+      cleanly from macOS to Lambda's <code>linux/amd64</code> runtime, and a single Dockerfile serves
+      both local development and production deployment without separate build paths. All six Lambda
+      functions share the same image, with each function's entrypoint set via
+      <code>image_config.command</code> in Terraform.
+    </p>
+  </section>
+
+  <section>
+    <h2>CI/CD Pipeline</h2>
+    <p>
+      The GitHub Actions workflow runs on every push across three sequential jobs: <strong>Lint &amp;
+      Test</strong> (ruff, black, pytest with moto AWS mocks), <strong>Build &amp; Push</strong>
+      (builds the <code>linux/amd64</code> container image and pushes to ECR), and
+      <strong>Terraform Deploy</strong> (applies infrastructure changes). The deploy job only runs on
+      pushes to <code>main</code>, so pull requests get lint and test coverage without touching AWS.
+      The pipeline authenticates to AWS using GitHub's OIDC provider, exchanging a short-lived JWT for
+      STS credentials — no long-lived access keys are stored as GitHub secrets.
+    </p>
+  </section>
+
+  <section>
+    <h2>Local Development</h2>
+    <p>
+      The system runs entirely locally without real AWS credentials. <code>make demo</code> starts a
+      Docker PostgreSQL instance, initializes the schema, and executes a full end-to-end pipeline run
+      using a MockConnector and moto-mocked S3. This lets any developer verify the complete pipeline
+      logic — detect, validate, transfer, register, notify — without touching AWS. The test suite
+      follows the same pattern: pytest with moto for S3 and mocked database connections, so tests are
+      fast, deterministic, and require no external dependencies.
+    </p>
+  </section>
+
+  <section>
+    <h2>Reflecting on the Design</h2>
+    <p>
+      The system is intentionally scoped to what a single DevOps engineer would own: infrastructure,
+      deployment automation, data movement, and observability. It deliberately does not include
+      secondary analysis, variant calling, or anything upstream of "get the file from A to B safely."
+      The pieces I would add in a real production environment — Secrets Manager for the database
+      password instead of an environment variable, a bastion or SSM Session Manager for direct RDS
+      access, cost-allocation tags per project, S3 Object Lambda for on-the-fly format conversion —
+      are called out in the codebase as known limitations rather than papered over. I think that kind
+      of transparency about scope is more useful in an interview context than a system that looks
+      complete but has hidden shortcuts.
+    </p>
+  </section>
+
+</div>
+</body>
+</html>
