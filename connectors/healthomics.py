@@ -26,7 +26,11 @@ def _derive_r2_key(s3_key: str) -> str:
         # Handle compound extensions: .fastq.gz, .fq.gz
         inner = s3_key[:-3]
         dot = inner.rfind(".")
-        return (inner[:dot] + "_R2" + inner[dot:] + ".gz") if dot != -1 else s3_key + "_R2.gz"
+        return (
+            (inner[:dot] + "_R2" + inner[dot:] + ".gz")
+            if dot != -1
+            else s3_key + "_R2.gz"
+        )
     dot = s3_key.rfind(".")
     return (s3_key[:dot] + "_R2" + s3_key[dot:]) if dot != -1 else s3_key + "_R2"
 
@@ -175,9 +179,7 @@ class HealthOmicsConnector(BaseConnector):
 
             if is_paired:
                 s3_key_r2 = _derive_r2_key(s3_key)
-                logger.info(
-                    f"Uploading SOURCE2 → s3://{s3_bucket}/{s3_key_r2}"
-                )
+                logger.info(f"Uploading SOURCE2 → s3://{s3_bucket}/{s3_key_r2}")
                 s3_client.upload_fileobj(
                     Fileobj=_IterableToFileObj(
                         _stream_source("SOURCE2", source2_parts)

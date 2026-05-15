@@ -47,7 +47,7 @@ resource "aws_iam_role_policy" "lambda_s3_rds" {
       },
       {
         Effect   = "Allow"
-        Action   = ["omics:ListReadSets", "omics:GetReadSet"]
+        Action   = ["omics:ListReadSets", "omics:GetReadSet", "omics:GetReadSetMetadata"]
         Resource = "*"
       }
     ]
