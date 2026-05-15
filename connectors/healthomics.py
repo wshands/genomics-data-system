@@ -13,6 +13,8 @@ from typing import Iterator
 import boto3
 from botocore.exceptions import ClientError
 
+import os
+
 from connectors.dnanexus import BaseConnector, RemoteFile
 
 logger = logging.getLogger(__name__)
